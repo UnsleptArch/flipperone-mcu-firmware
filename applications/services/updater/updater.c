@@ -144,6 +144,7 @@ static void updater_write_first_sector(Updater* updater) {
     bool success = furi_hal_flash_get_image_version(updater->first_sector_buf, new_version.raw);
     if(!success) {
         FURI_LOG_E(TAG, "Update image missing version information");
+        updater_state_change(updater, UpdaterStateError, UpdaterErrorFwVersionError);
         return;
     }
 
@@ -281,10 +282,10 @@ int32_t updater_srv(void* p) {
 
     updater_state_change(instance, UpdaterStateIdle, UpdaterErrorNone);
     instance->active_partition = furi_hal_flash_get_active_fw_partition();
-    furi_hal_flash_get_partition_info(
+    furi_check(furi_hal_flash_get_partition_info(
         instance->active_partition == FlashPartitionIdFwA ? FlashPartitionIdFwB : FlashPartitionIdFwA,
         &instance->write_partition_address,
-        &instance->write_partition_size);
+        &instance->write_partition_size));
     furi_check(instance->write_partition_address % FLASH_SECTOR_SIZE == 0);
 
     size_t active_part_base = 0;

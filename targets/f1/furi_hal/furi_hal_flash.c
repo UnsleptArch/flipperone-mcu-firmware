@@ -13,10 +13,18 @@
 #include "boot/picoboot_constants.h"
 
 static uint8_t* find_picobin_block(const uint8_t* start, size_t size) {
-    for(size_t offset = 0; offset < size; offset++) {
+    uint8_t* start_ptr = NULL;
+    for(size_t offset = 0; offset < size; offset += 4) {
         const uint8_t* ptr = start + offset;
         if(*(uint32_t*)ptr == PICOBIN_BLOCK_MARKER_START) {
-            return (uint8_t*)ptr;
+            start_ptr = (uint8_t*)ptr;
+        }
+    }
+    if(!start_ptr) return NULL;
+
+    for(uint8_t* ptr = start_ptr; ptr < (start + size); ptr += 4) {
+        if(*(uint32_t*)ptr == PICOBIN_BLOCK_MARKER_END) {
+            return start_ptr;
         }
     }
     return NULL;
@@ -186,11 +194,9 @@ size_t furi_hal_flash_get_page_size(void) {
 size_t furi_hal_flash_get_base(void) {
     // Always return the base of the first bank (abstract both banks as a single region)
     return XIP_BASE;
-    // FIXME: get from partition table
 }
 
 const void* furi_hal_flash_get_free_end_address(void) {
     // The end of the free region is the end of the flash (abstract both banks as a single region)
     return (const void*)(XIP_BASE + PICO_FLASH_SIZE_BYTES);
-    // FIXME: get from partition table
 }

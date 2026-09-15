@@ -14,7 +14,7 @@ REG_FW_BLOCKS = 0xF022
 
 REG_FW_DATA = 0xF040
 
-class UpdaterStatus(Enum):
+class UpdaterState(Enum):
     IDLE = 0
     RUNNING = 1
     BUSY = 2
@@ -94,9 +94,9 @@ class McuI2C:
         write_msg = I2C.Message([addr_high, addr_low] + list(buf))
         self.i2c.transfer(MCU_ADDR, [write_msg])
 
-def get_state(mcu) -> tuple[UpdaterStatus, UpdaterError]:
+def get_state(mcu) -> tuple[UpdaterState, UpdaterError]:
     reg_status = mcu.read_register(REG_STATUS)
-    return UpdaterStatus(reg_status & 0xFF), UpdaterError((reg_status >> 8) & 0xFF)
+    return UpdaterState(reg_status & 0xFF), UpdaterError((reg_status >> 8) & 0xFF)
 
 def send_command(mcu, command: UpdaterCommand):
     mcu.write_register(REG_FW_COMMAND, int(command.value))
@@ -118,7 +118,7 @@ def main():
     state, error = get_state(mcu)
     reg_fw_version = mcu.read_register(REG_FW_VERSION)
     print(f"State: {state.name}, Current FW version: 0x{reg_fw_version:04X}")
-    if state != UpdaterStatus.IDLE:
+    if state != UpdaterState.IDLE:
         print("Aborting previous update")
         send_command(mcu, UpdaterCommand.ABORT)
 
@@ -139,11 +139,11 @@ def main():
     print("Erasing flash area...")
 
     state, error = get_state(mcu)
-    while state != UpdaterStatus.RUNNING:
+    while state != UpdaterState.RUNNING:
         time.sleep(1)
         state, error = get_state(mcu)
         print(f"State: {state.name}")
-        if state == UpdaterStatus.ERROR:
+        if state == UpdaterState.ERROR:
             print(f"Error: {error.name}")
             return
 
@@ -161,11 +161,11 @@ def main():
 
         state, error = get_state(mcu)
         print(f"State: {state.name}, Sending block {block_idx}/{block_count}")
-        while state == UpdaterStatus.BUSY:
+        while state == UpdaterState.BUSY:
             time.sleep(0.1)
             state, error = get_state(mcu)
 
-        if state == UpdaterStatus.ERROR:
+        if state == UpdaterState.ERROR:
             print(f"Error: {error.name}")
             return
         
@@ -177,7 +177,7 @@ def main():
 
     state, error = get_state(mcu)
     print(f"State: {state.name}")
-    if state == UpdaterStatus.ERROR:
+    if state == UpdaterState.ERROR:
         print(f"Error: {error.name}")
         return
 

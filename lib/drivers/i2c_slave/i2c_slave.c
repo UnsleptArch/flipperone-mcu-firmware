@@ -36,8 +36,9 @@ static void __isr __not_in_flash_func(i2c_slave_irq_callback)(void) {
             (void)hw->clr_rd_req;
             slave->callback(i2c, I2cSlaveEventRequest);
         }
-        if(intr_stat & I2C_IC_INTR_STAT_R_STOP_DET_BITS) {
+        if(intr_stat & (I2C_IC_INTR_STAT_R_STOP_DET_BITS | I2C_IC_INTR_STAT_R_TX_ABRT_BITS)) {
             (void)hw->clr_stop_det;
+            (void)hw->clr_tx_abrt;
             slave->callback(i2c, I2cSlaveEventStop);
             *is_started = false;
         }
@@ -62,8 +63,9 @@ static void __isr __not_in_flash_func(i2c_slave_irq_callback)(void) {
                 (void)hw->clr_restart_det;
                 slave->callback(i2c, I2cSlaveEventRepeatedStart);
             }
-            if(intr_stat & I2C_IC_INTR_STAT_R_STOP_DET_BITS) {
+            if(intr_stat & (I2C_IC_INTR_STAT_R_STOP_DET_BITS | I2C_IC_INTR_STAT_R_TX_ABRT_BITS)) {
                 (void)hw->clr_stop_det;
+                (void)hw->clr_tx_abrt;
                 slave->callback(i2c, I2cSlaveEventStop);
                 *is_started = false;
             }
