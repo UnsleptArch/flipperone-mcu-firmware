@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 typedef enum {
-    FuriBspSaradcId1,
+    FuriBspSaradcId1 = 1,
     FuriBspSaradcId2,
     FuriBspSaradcId3,
     FuriBspSaradcId4,
@@ -21,8 +21,7 @@ typedef enum {
 extern "C" {
 #endif
 
-void furi_bsp_saradc_alloc(void);
-void furi_bsp_saradc_free(void);
+void furi_bsp_saradc_init(void);
 void furi_bsp_saradc_set_id(FuriBspSaradcId id);
 FuriBspSaradcId furi_bsp_saradc_get_id(void);
 

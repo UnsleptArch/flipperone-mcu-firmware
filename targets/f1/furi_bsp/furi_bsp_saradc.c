@@ -16,7 +16,10 @@ typedef struct {
     FuriBspSaradcId current_id;
 } FuriBspSaradc;
 
-const uint16_t saradc_id_pwm[FuriBspSaradcIdMax] = {
+// PWM duty cycle values emulating the voltage levels of a resistor ladder
+// on the SARADC pin. U-Boot reads this pin to select boot-time
+// configuration (e.g. board/module ID, boot mode such as recovery/normal/DFU).
+static const uint16_t saradc_id_pwm[FuriBspSaradcIdMax] = {
     [FuriBspSaradcId1] = 0,
     [FuriBspSaradcId2] = 416,
     [FuriBspSaradcId3] = 816,
@@ -32,7 +35,7 @@ const uint16_t saradc_id_pwm[FuriBspSaradcIdMax] = {
 
 static FuriBspSaradc* furi_bsp_saradc_instance = NULL;
 
-void furi_bsp_saradc_alloc(void) {
+void furi_bsp_saradc_init(void) {
     furi_check(furi_bsp_saradc_instance == NULL);
     furi_bsp_saradc_instance = malloc(sizeof(FuriBspSaradc));
     furi_bsp_saradc_instance->pwm_saradc = furi_hal_pwm_init(&gpio_cpu_adc_in1_boot, SARADC_PWM_RESOLUTION, SARADC_PWM_FREQ_HZ, false);
@@ -46,16 +49,9 @@ void furi_bsp_saradc_alloc(void) {
         SARADC_PWM_RESOLUTION);
 }
 
-void furi_bsp_saradc_free(void) {
-    furi_check(furi_bsp_saradc_instance != NULL);
-    furi_hal_pwm_deinit(furi_bsp_saradc_instance->pwm_saradc);
-    free(furi_bsp_saradc_instance);
-    furi_bsp_saradc_instance = NULL;
-    FURI_LOG_I(TAG, "SARADC PWM deinitialized");
-}
-
 void furi_bsp_saradc_set_id(FuriBspSaradcId id) {
-    furi_check(furi_bsp_saradc_instance != NULL);
+    furi_assert(furi_bsp_saradc_instance != NULL);
+    furi_check(id >= FuriBspSaradcId1 && id < FuriBspSaradcIdMax);
     furi_hal_pwm_set_duty_cycle(furi_bsp_saradc_instance->pwm_saradc, saradc_id_pwm[id]);
     furi_bsp_saradc_instance->current_id = id;
 
@@ -63,6 +59,6 @@ void furi_bsp_saradc_set_id(FuriBspSaradcId id) {
 }
 
 FuriBspSaradcId furi_bsp_saradc_get_id(void) {
-    furi_check(furi_bsp_saradc_instance != NULL);
+    furi_assert(furi_bsp_saradc_instance != NULL);
     return furi_bsp_saradc_instance->current_id;
 }
