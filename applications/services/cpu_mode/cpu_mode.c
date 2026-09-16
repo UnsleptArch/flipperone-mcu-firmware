@@ -29,9 +29,8 @@ typedef struct {
     FuriApiLock lock;
     bool* result;
     union {
-        struct {
-            CpuState* cpu_state;
-        } cpu_state;
+        CpuState cpu_state; // SetCpuState: value to apply
+        CpuState* cpu_state_out; // GetCpuState: where to write the current value
     } as;
 } CpuModeMessage;
 
@@ -47,9 +46,11 @@ static void cpu_mode_message_queue_callback(FuriEventLoopObject* object, void* c
 
     switch(msg.type) {
     case CpuModeMessageTypeSetCpuState: {
-        CpuState cpu_state = *msg.as.cpu_state.cpu_state;
+        CpuState cpu_state = msg.as.cpu_state;
         if(cpu_state >= CpuStateNumStates) {
             // Ignore garbage from the I2C link (bus glitch, protocol/version
+            // mismatch, etc.) instead of corrupting our state; log it so the
+            // mismatch is still visible.
             FURI_LOG_E(TAG, "Invalid CPU state from I2C: %u", cpu_state);
             break;
         }
@@ -65,8 +66,8 @@ static void cpu_mode_message_queue_callback(FuriEventLoopObject* object, void* c
         break;
     }
     case CpuModeMessageTypeGetCpuState:
-        if(msg.as.cpu_state.cpu_state) {
-            *msg.as.cpu_state.cpu_state = instance->status.cpu_state;
+        if(msg.as.cpu_state_out) {
+            *msg.as.cpu_state_out = instance->status.cpu_state;
             result = true;
         }
         break;
@@ -97,9 +98,10 @@ static void cpu_mode_shutdown_timer_callback(void* context) {
     CpuMode* instance = context;
     if(instance->status.cpu_state == CpuStatePoweredOff) {
         const char* appid = desktop_get_running_app_id();
+
         if(appid && (!strcmp(appid, "cpu_app_start") || !strcmp(appid, "cpu_app_maskrom"))) {
             FURI_LOG_D(TAG, "Cpu_app stopping due to CPU State: %d", instance->status.cpu_state);
-            desktop_stop_app();
+            desktop_stop_app(appid);
         }
     }
 }
@@ -134,13 +136,7 @@ bool cpu_mode_set_cpu_state(CpuMode* instance, CpuState cpu_state) {
         .type = CpuModeMessageTypeSetCpuState,
         .result = &result,
         .lock = api_lock_alloc_locked(),
-        .as =
-            {
-                .cpu_state =
-                    {
-                        .cpu_state = &cpu_state,
-                    },
-            },
+        .as = {.cpu_state = cpu_state},
     };
 
     cpu_mode_send_message(instance, &msg);
@@ -154,13 +150,7 @@ bool cpu_mode_get_cpu_state(CpuMode* instance, CpuState* cpu_state) {
         .type = CpuModeMessageTypeGetCpuState,
         .result = &result,
         .lock = api_lock_alloc_locked(),
-        .as =
-            {
-                .cpu_state =
-                    {
-                        .cpu_state = cpu_state,
-                    },
-            },
+        .as = {.cpu_state_out = cpu_state},
     };
 
     cpu_mode_send_message(instance, &msg);
