@@ -170,3 +170,38 @@
 #define I2C_HAPTIC_NUM_EFFECT_SHIFT        (8)
 #define I2C_HAPTIC_DURATION_MASK           (0x00FF)
 #define I2C_HAPTIC_DURATION_SHIFT          (0)
+
+// Debug power meter registers (INA4230 x5, 4 channels each)
+/*
+ * Read-only telemetry from the 5 debug INA4230 power meters (20 channels
+ * total, one per monitored board rail), refreshed periodically by the
+ * negotiator, same as the main power meter block. Base address starts at
+ * 0x0600 rather than immediately after the main power meter's 0x0510, to
+ * leave that block room to grow independently.
+ *
+ * At 4 values x 20 channels, spelling out a distinct #define per register
+ * (400 lines) would be worse than the computed-address macro below — the
+ * layout is: base + chip * CHIP_SIZE + channel * CHANNEL_SIZE + value
+ * offset, generalizing the same "+N" offset convention every other block
+ * in this file already uses, just parameterized instead of spelled out
+ * per address.
+ *
+ * chip:    0..4  (POWER_INA4230_CHIP_COUNT in power.h)
+ * channel: 0..3  (POWER_INA4230_CHANNEL_COUNT in power.h)
+ *
+ * Per channel, in order:
+ *   +0 Bus voltage, millivolts                 (read)
+ *   +2 Current, milliamps                      (read)
+ *   +4 Power, centiwatts (hundredths of a watt) (read)
+ *   +6 Shunt voltage, hundredths of a millivolt (read)
+ * Same units/scale as the main power meter block, for consistency.
+*/
+#define I2C_DEBUG_POWER_METER_BASE_ADDRESS   (0x0600)
+#define I2C_DEBUG_POWER_METER_CHANNEL_SIZE   (0x0008) // 4 values * 2 bytes
+#define I2C_DEBUG_POWER_METER_CHIP_SIZE      (0x0020) // 4 channels * CHANNEL_SIZE
+#define I2C_DEBUG_POWER_METER_VOLTAGE_OFFSET (0x0000)
+#define I2C_DEBUG_POWER_METER_CURRENT_OFFSET (0x0002)
+#define I2C_DEBUG_POWER_METER_POWER_OFFSET   (0x0004)
+#define I2C_DEBUG_POWER_METER_SHUNT_OFFSET   (0x0006)
+#define I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, value_offset) \
+    (I2C_DEBUG_POWER_METER_BASE_ADDRESS + (chip) * I2C_DEBUG_POWER_METER_CHIP_SIZE + (channel) * I2C_DEBUG_POWER_METER_CHANNEL_SIZE + (value_offset))

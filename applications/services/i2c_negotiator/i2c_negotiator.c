@@ -7,10 +7,16 @@
 #include <led/led.h>
 #include <haptic/haptic.h>
 #include <drivers/drv2605l/drv2605l.h>
+#include <math.h>
+#include <power/power.h>
 
 #define TAG "I2CNegotiator"
 
 #define I2C_NEGOTIATOR_QUEUE_SIZE 32
+
+// Matches the existing 500ms cadence power_show_cli.c and
+// power_consumption_cli.c already poll the same power meters at.
+#define I2C_NEGOTIATOR_DEBUG_POWER_METER_POLL_PERIOD_MS 500
 
 typedef struct {
     Gui* gui;
@@ -19,6 +25,8 @@ typedef struct {
     I2CIntercom* intercom;
     Led* led;
     Haptic* haptic;
+    Power* power;
+    FuriEventLoopTimer* debug_power_meter_timer;
 } I2CNegotiator;
 
 typedef void (*I2CNegotiatorMessageFunction)(I2CNegotiator* instance, uint16_t value);
@@ -208,6 +216,53 @@ void i2c_negotiator_haptic_play_effect(I2CNegotiator* instance, uint16_t value) 
 }
 I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_haptic_play_effect);
 
+// Debug power meters (INA4230 x5, 4 channels each). Same reasoning as the
+// main power meter: this is continuous telemetry, not something a CPU
+// write or a hardware interrupt drives, so it's polled on a timer and
+// pushed into the register map directly from this thread rather than
+// through the negotiator_queue indirection, since this isn't running from
+// an ISR.
+static uint16_t i2c_negotiator_scale_voltage_mv(float voltage_v) {
+    // Same rounding/negative-guard reasoning as the main power meter: a
+    // negative voltage cast straight to uint16_t would wrap into a huge
+    // number instead of clamping to something sane.
+    return voltage_v > 0.0f ? (uint16_t)lroundf(voltage_v * 1000.0f) : 0;
+}
+
+static void i2c_negotiator_debug_power_meter_poll(void* context) {
+    I2CNegotiator* instance = context;
+
+    for(uint8_t chip = 0; chip < POWER_INA4230_CHIP_COUNT; chip++) {
+        if(!power_ina4230_is_chip_present(instance->power, chip)) {
+            // This specific chip isn't present/ready — leave its 4
+            // channels' registers at their last known value rather than
+            // publishing zeros that could be mistaken for a real reading.
+            continue;
+        }
+
+        for(uint8_t channel = 0; channel < POWER_INA4230_CHANNEL_COUNT; channel++) {
+            float voltage_v = 0.0f, current_a = 0.0f, power_w = 0.0f, shunt_mv = 0.0f;
+            power_ina4230_get_bus_voltage_v(instance->power, chip, channel, &voltage_v);
+            power_ina4230_get_current_a(instance->power, chip, channel, &current_a);
+            power_ina4230_get_power_w(instance->power, chip, channel, &power_w);
+            power_ina4230_get_shunt_voltage_mv(instance->power, chip, channel, &shunt_mv);
+
+            uint16_t voltage_mv = i2c_negotiator_scale_voltage_mv(voltage_v);
+            int16_t current_ma = (int16_t)lroundf(current_a * 1000.0f);
+            int16_t power_cw = (int16_t)lroundf(power_w * 100.0f);
+            int16_t shunt_hundredths_mv = (int16_t)lroundf(shunt_mv * 100.0f);
+
+            with_i2c_register({
+                i2c_register_update(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_VOLTAGE_OFFSET), voltage_mv, 0xFFFF);
+                i2c_register_update(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_CURRENT_OFFSET), (uint16_t)current_ma, 0xFFFF);
+                i2c_register_update(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_POWER_OFFSET), (uint16_t)power_cw, 0xFFFF);
+                i2c_register_update(
+                    I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_SHUNT_OFFSET), (uint16_t)shunt_hundredths_mv, 0xFFFF);
+            });
+        }
+    }
+}
+
 // Internal functions
 static void i2c_negotiator_queue_worker(FuriEventLoopObject* object, void* context) {
     furi_check(context);
@@ -255,6 +310,7 @@ I2CNegotiator* i2c_negotiator_alloc() {
     instance->intercom = furi_record_open(RECORD_I2C_INTERCOM);
     instance->led = furi_record_open(RECORD_LEDS);
     instance->haptic = furi_record_open(RECORD_HAPTIC);
+    instance->power = furi_record_open(RECORD_POWER);
     instance->event_loop = furi_event_loop_alloc();
 
     instance->negotiator_queue = furi_message_queue_alloc(I2C_NEGOTIATOR_QUEUE_SIZE, sizeof(I2CNegotiatorI2CMessage));
@@ -308,7 +364,24 @@ I2CNegotiator* i2c_negotiator_alloc() {
 
         // Haptic
         i2c_register_add_writable(I2C_HAPTIC_PLAY_EFFECT_REG_ADDRESS, 0, i2c_negotiator_haptic_play_effect_message, instance->negotiator_queue);
+
+        // Debug power meters — 5 chips x 4 channels x 4 values each. A loop
+        // rather than 80 individual add_readable calls, for the same
+        // reason the register addresses themselves are computed rather
+        // than individually named.
+        for(uint8_t chip = 0; chip < POWER_INA4230_CHIP_COUNT; chip++) {
+            for(uint8_t channel = 0; channel < POWER_INA4230_CHANNEL_COUNT; channel++) {
+                i2c_register_add_readable(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_VOLTAGE_OFFSET), 0);
+                i2c_register_add_readable(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_CURRENT_OFFSET), 0);
+                i2c_register_add_readable(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_POWER_OFFSET), 0);
+                i2c_register_add_readable(I2C_DEBUG_POWER_METER_REG_ADDRESS(chip, channel, I2C_DEBUG_POWER_METER_SHUNT_OFFSET), 0);
+            }
+        }
     }
+
+    instance->debug_power_meter_timer =
+        furi_event_loop_timer_alloc(instance->event_loop, i2c_negotiator_debug_power_meter_poll, FuriEventLoopTimerTypePeriodic, instance);
+    furi_event_loop_timer_start(instance->debug_power_meter_timer, furi_ms_to_ticks(I2C_NEGOTIATOR_DEBUG_POWER_METER_POLL_PERIOD_MS));
 
     furi_event_loop_subscribe_message_queue(instance->event_loop, instance->negotiator_queue, FuriEventLoopEventIn, i2c_negotiator_queue_worker, instance);
 

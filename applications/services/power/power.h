@@ -7,13 +7,21 @@
 
 #define RECORD_POWER "power"
 
+// The debug power tree is monitored by 5 separate INA4230 chips, each with
+// 4 channels, matching the real board wiring already used by
+// power_consumption_cli.c (same addresses, same per-channel shunt/current
+// config) — see that file if these numbers ever need to change.
+#define POWER_INA4230_CHIP_COUNT    (5)
+#define POWER_INA4230_CHANNEL_COUNT (4)
+
 typedef struct Power Power;
 
 typedef enum {
     PowerDeviceIna219 = (1 << 0),
     PowerDeviceBq2579x = (1 << 1),
     PowerDeviceBq28z620 = (1 << 2),
-    PowerDeviceAllInit = (PowerDeviceIna219 | PowerDeviceBq2579x | PowerDeviceBq28z620),
+    PowerDeviceIna4230 = (1 << 3),
+    PowerDeviceAllInit = (PowerDeviceIna219 | PowerDeviceBq2579x | PowerDeviceBq28z620 | PowerDeviceIna4230),
 } PowerDevice;
 
 #ifdef __cplusplus
@@ -27,6 +35,20 @@ float_t power_ina219_get_voltage_v(Power* instance);
 float_t power_ina219_get_current_a(Power* instance);
 float_t power_ina219_get_power_w(Power* instance);
 float_t power_ina219_get_shunt_voltage_mv(Power* instance);
+
+// Debug power meters (INA4230 x5, 4 channels each — see POWER_INA4230_CHIP_COUNT
+// and POWER_INA4230_CHANNEL_COUNT above). `chip` and `channel` are checked
+// with furi_check, since an out-of-range index here is our own indexing bug
+// into a fixed-size array, not just a bad hardware reading. Returns false
+// (without touching *out) if that particular chip failed to initialize —
+// matches how power_consumption_cli.c already tolerates one INA4230 being
+// absent without taking the others down with it.
+bool power_ina4230_is_chip_present(Power* instance, uint8_t chip);
+bool power_ina4230_get_bus_voltage_v(Power* instance, uint8_t chip, uint8_t channel, float* voltage);
+bool power_ina4230_get_current_a(Power* instance, uint8_t chip, uint8_t channel, float* current);
+bool power_ina4230_get_power_w(Power* instance, uint8_t chip, uint8_t channel, float* power);
+bool power_ina4230_get_shunt_voltage_mv(Power* instance, uint8_t chip, uint8_t channel, float* voltage);
+const char* power_ina4230_get_channel_name(Power* instance, uint8_t chip, uint8_t channel);
 
 bool power_bq2579x_reset_config(Power* instance);
 bool power_bq2579x_set_power_switch(Power* instance, Bq2579xPowerSwitch power_switch);
