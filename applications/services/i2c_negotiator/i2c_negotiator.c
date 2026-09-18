@@ -7,6 +7,7 @@
 #include <led/led.h>
 #include <haptic/haptic.h>
 #include <drivers/drv2605l/drv2605l.h>
+#include <power/power.h>
 
 #define TAG "I2CNegotiator"
 
@@ -19,6 +20,7 @@ typedef struct {
     I2CIntercom* intercom;
     Led* led;
     Haptic* haptic;
+    Power* power;
 } I2CNegotiator;
 
 typedef void (*I2CNegotiatorMessageFunction)(I2CNegotiator* instance, uint16_t value);
@@ -208,6 +210,27 @@ void i2c_negotiator_haptic_play_effect(I2CNegotiator* instance, uint16_t value) 
 }
 I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_haptic_play_effect);
 
+// Charger watchdog functions
+void i2c_negotiator_charger_watchdog_reset(I2CNegotiator* instance, uint16_t value) {
+    UNUSED(value);
+    if(!power_bq2579x_watchdog_reset(instance->power)) {
+        FURI_LOG_E(TAG, "Failed to reset charger watchdog");
+    }
+}
+I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_charger_watchdog_reset);
+
+void i2c_negotiator_charger_watchdog_set_time(I2CNegotiator* instance, uint16_t value) {
+    if(value > Bq2579xWatchdogTime160s) {
+        FURI_LOG_E(TAG, "Invalid charger watchdog time: %d", value);
+        return;
+    }
+
+    if(!power_bq2579x_watchdog_set_time(instance->power, (Bq2579xWatchdogTime)value)) {
+        FURI_LOG_E(TAG, "Failed to set charger watchdog time");
+    }
+}
+I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_charger_watchdog_set_time);
+
 // Internal functions
 static void i2c_negotiator_queue_worker(FuriEventLoopObject* object, void* context) {
     furi_check(context);
@@ -255,6 +278,7 @@ I2CNegotiator* i2c_negotiator_alloc() {
     instance->intercom = furi_record_open(RECORD_I2C_INTERCOM);
     instance->led = furi_record_open(RECORD_LEDS);
     instance->haptic = furi_record_open(RECORD_HAPTIC);
+    instance->power = furi_record_open(RECORD_POWER);
     instance->event_loop = furi_event_loop_alloc();
 
     instance->negotiator_queue = furi_message_queue_alloc(I2C_NEGOTIATOR_QUEUE_SIZE, sizeof(I2CNegotiatorI2CMessage));
@@ -308,6 +332,10 @@ I2CNegotiator* i2c_negotiator_alloc() {
 
         // Haptic
         i2c_register_add_writable(I2C_HAPTIC_PLAY_EFFECT_REG_ADDRESS, 0, i2c_negotiator_haptic_play_effect_message, instance->negotiator_queue);
+
+        // Charger watchdog
+        i2c_register_add_writable(I2C_CHARGER_WATCHDOG_RESET_REG_ADDRESS, 0, i2c_negotiator_charger_watchdog_reset_message, instance->negotiator_queue);
+        i2c_register_add_writable(I2C_CHARGER_WATCHDOG_TIME_REG_ADDRESS, Bq2579xWatchdogTime40s, i2c_negotiator_charger_watchdog_set_time_message, instance->negotiator_queue);
     }
 
     furi_event_loop_subscribe_message_queue(instance->event_loop, instance->negotiator_queue, FuriEventLoopEventIn, i2c_negotiator_queue_worker, instance);

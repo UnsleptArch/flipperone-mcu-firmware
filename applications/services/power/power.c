@@ -642,6 +642,14 @@ bool power_bq2579x_watchdog_reset(Power* instance) {
     return result == Bq2579xStatusOk;
 }
 
+bool power_bq2579x_watchdog_set_time(Power* instance, Bq2579xWatchdogTime time) {
+    furi_check(instance);
+    Bq2579xStatus result;
+    POWER_API_CALL_PARAM(
+        PowerDeviceBq2579x, bq2579x_watchdog_set_time, instance->bq2579x_header, time, result);
+    return result == Bq2579xStatusOk;
+}
+
 bool power_bq2579x_set_otg_params(Power* instance, uint16_t voltage_mv, uint16_t current_ma) {
     furi_check(instance);
     Bq2579xStatus result;

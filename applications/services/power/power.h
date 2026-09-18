@@ -1,5 +1,6 @@
 #pragma once
 #include <furi.h>
+#include <drivers/bq2579x/bq2579x.h>
 #include <drivers/bq2579x/bq2579x_reg.h>
 #include <drivers/bq2579x/bq2579x_helper.h>
 #include <drivers/bq28z620/bq28z620_reg.h>
@@ -50,6 +51,7 @@ bool power_bq2579x_get_charger_fault(Power* instance, Bq2579xFaultStatusReg* fau
 bool power_bq2579x_get_charger_irq_flags(Power* instance, Bq2579xChargerFlagReg* irq_flags);
 bool power_bq2579x_adc_enable(Power* instance, bool enable);
 bool power_bq2579x_watchdog_reset(Power* instance);
+bool power_bq2579x_watchdog_set_time(Power* instance, Bq2579xWatchdogTime time);
 bool power_bq2579x_get_ico_current_limit_ma(Power* instance, uint16_t* ico_current_limit);
 bool power_bq2579x_set_otg_params(Power* instance, uint16_t voltage_mv, uint16_t current_ma);
 bool power_bq2579x_otg_enable(Power* instance, bool enable);

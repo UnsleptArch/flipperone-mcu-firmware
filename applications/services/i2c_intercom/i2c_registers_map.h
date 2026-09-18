@@ -170,3 +170,18 @@
 #define I2C_HAPTIC_NUM_EFFECT_SHIFT        (8)
 #define I2C_HAPTIC_DURATION_MASK           (0x00FF)
 #define I2C_HAPTIC_DURATION_SHIFT          (0)
+
+// Charger watchdog registers
+/*
+ * The BQ2579x charger has its own I2C watchdog, separate from anything on
+ * the CPU or MCU: if it is not petted before it expires, the charger
+ * silently reloads its default (safe) charge/OTG settings. These registers
+ * let the CPU pet it and pick its timeout from this side of the intercom.
+ * 0x0500+0 Charger watchdog reset (write) - writing any value pets the
+ *          charger's I2C watchdog
+ * 0x0500+2 Charger watchdog timeout (read, write) - one of
+ *          Bq2579xWatchdogTime (0 = disabled, 1 = 0.5s, 2 = 1s, 3 = 2s,
+ *          4 = 20s, 5 = 40s (chip default), 6 = 80s, 7 = 160s)
+*/
+#define I2C_CHARGER_WATCHDOG_RESET_REG_ADDRESS (0x0500 + 0)
+#define I2C_CHARGER_WATCHDOG_TIME_REG_ADDRESS  (0x0500 + 2)
