@@ -102,6 +102,10 @@ typedef enum FURI_PACKED {
     CliKeyDown,
     CliKeyHome,
     CliKeyEnd,
+    // Forward-delete, sent by real terminals as ESC [ 3 ~ — distinct from
+    // CliKeyDEL (raw 0x7F), which most terminals send for the physical
+    // Backspace key instead.
+    CliKeyDelete,
 } CliKey;
 static_assert(sizeof(CliKey) == sizeof(char));
 

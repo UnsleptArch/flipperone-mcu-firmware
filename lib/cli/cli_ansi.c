@@ -7,6 +7,9 @@ typedef enum {
     CliAnsiParserStateEscapeBraceOne,
     CliAnsiParserStateEscapeBraceOneSemicolon,
     CliAnsiParserStateEscapeBraceOneSemicolonModifiers,
+    // <ESC> [ 3 ..., waiting on the trailing '~' of the Delete key's
+    // sequence (ESC [ 3 ~).
+    CliAnsiParserStateEscapeBraceDelete,
 } CliAnsiParserState;
 
 struct CliAnsiParser {
@@ -81,12 +84,27 @@ CliAnsiParserResult cli_ansi_parser_feed(CliAnsiParser* parser, char c) {
         break;
 
     case CliAnsiParserStateEscapeBrace:
-        // <ESC> [ <key mnemonic> -> <key>
-        if(c != '1') PARSER_RESET_AND_RETURN(parser, CliModKeyNo, cli_ansi_key_from_mnemonic(c));
-
         // <ESC> [ 1 ...
-        parser->state = CliAnsiParserStateEscapeBraceOne;
-        break;
+        if(c == '1') {
+            parser->state = CliAnsiParserStateEscapeBraceOne;
+            break;
+        }
+
+        // <ESC> [ 3 ... (Delete key, expects a trailing '~')
+        if(c == '3') {
+            parser->state = CliAnsiParserStateEscapeBraceDelete;
+            break;
+        }
+
+        // <ESC> [ <key mnemonic> -> <key>
+        PARSER_RESET_AND_RETURN(parser, CliModKeyNo, cli_ansi_key_from_mnemonic(c));
+
+    case CliAnsiParserStateEscapeBraceDelete:
+        // <ESC> [ 3 ~ -> Delete. Consume the trailing byte either way so an
+        // unexpected one doesn't leak back into the input stream as a
+        // literal character the way it used to.
+        if(c == '~') PARSER_RESET_AND_RETURN(parser, CliModKeyNo, CliKeyDelete);
+        PARSER_RESET_AND_RETURN(parser, CliModKeyNo, CliKeyUnrecognized);
 
     case CliAnsiParserStateEscapeBraceOne:
         // <ESC> [ 1 <non-;> -> error
