@@ -170,3 +170,18 @@
 #define I2C_HAPTIC_NUM_EFFECT_SHIFT        (8)
 #define I2C_HAPTIC_DURATION_MASK           (0x00FF)
 #define I2C_HAPTIC_DURATION_SHIFT          (0)
+
+// Main power meter registers (INA219)
+/*
+ * Read-only telemetry from the main INA219 power meter, refreshed
+ * periodically by the negotiator (see i2c_negotiator.c). All values are
+ * signed except voltage, which cannot be negative.
+ * 0x0510+0 Bus voltage, millivolts                 (read)
+ * 0x0510+2 Current, milliamps                      (read)
+ * 0x0510+4 Power, centiwatts (hundredths of a watt) (read)
+ * 0x0510+6 Shunt voltage, hundredths of a millivolt (read)
+*/
+#define I2C_POWER_METER_VOLTAGE_REG_ADDRESS       (0x0510 + 0)
+#define I2C_POWER_METER_CURRENT_REG_ADDRESS       (0x0510 + 2)
+#define I2C_POWER_METER_POWER_REG_ADDRESS         (0x0510 + 4)
+#define I2C_POWER_METER_SHUNT_VOLTAGE_REG_ADDRESS (0x0510 + 6)

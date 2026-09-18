@@ -1,4 +1,5 @@
 #include <furi.h>
+#include <math.h>
 #include <gui/gui.h>
 #include <headphones/headphones.h>
 #include <i2c_intercom/i2c_intercom.h>
@@ -7,10 +8,15 @@
 #include <led/led.h>
 #include <haptic/haptic.h>
 #include <drivers/drv2605l/drv2605l.h>
+#include <power/power.h>
 
 #define TAG "I2CNegotiator"
 
 #define I2C_NEGOTIATOR_QUEUE_SIZE 32
+
+// Matches the existing 500ms cadence power_show_cli.c and
+// power_consumption_cli.c already poll the same INA219 at.
+#define I2C_NEGOTIATOR_POWER_METER_POLL_PERIOD_MS 500
 
 typedef struct {
     Gui* gui;
@@ -19,6 +25,8 @@ typedef struct {
     I2CIntercom* intercom;
     Led* led;
     Haptic* haptic;
+    Power* power;
+    FuriEventLoopTimer* power_meter_timer;
 } I2CNegotiator;
 
 typedef void (*I2CNegotiatorMessageFunction)(I2CNegotiator* instance, uint16_t value);
@@ -208,6 +216,48 @@ void i2c_negotiator_haptic_play_effect(I2CNegotiator* instance, uint16_t value) 
 }
 I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_haptic_play_effect);
 
+// Main power meter (INA219). Unlike every register above, this one isn't
+// driven by a CPU write or a hardware interrupt: it's continuous telemetry,
+// so it's refreshed on a timer instead. This callback runs directly on the
+// negotiator's own event loop thread (not from an ISR), so unlike the
+// writable-register handlers above it can call into the power service
+// directly without going through the negotiator_queue indirection.
+static void i2c_negotiator_power_meter_poll(void* context) {
+    I2CNegotiator* instance = context;
+
+    PowerDevice devices = 0;
+    power_is_device_initialized(instance->power, &devices);
+    if(!(devices & PowerDeviceIna219)) {
+        // Not ready yet (or not present on this board revision). Leave the
+        // registers at their last known value rather than publishing
+        // whatever power_ina219_get_* would return for an uninitialized
+        // device.
+        return;
+    }
+
+    float voltage_v = power_ina219_get_voltage_v(instance->power);
+    float current_a = power_ina219_get_current_a(instance->power);
+    float power_w = power_ina219_get_power_w(instance->power);
+    float shunt_mv = power_ina219_get_shunt_voltage_mv(instance->power);
+
+    // lroundf rather than a cast: casting a negative float to an unsigned
+    // type is a real bug (huge wraparound), and a plain cast to a signed
+    // type truncates toward zero instead of rounding, which is wrong for
+    // negative values too. Same rounding approach display_settings.c
+    // already uses for its own float-to-fixed-point conversions.
+    uint16_t voltage_mv = voltage_v > 0.0f ? (uint16_t)lroundf(voltage_v * 1000.0f) : 0;
+    int16_t current_ma = (int16_t)lroundf(current_a * 1000.0f);
+    int16_t power_cw = (int16_t)lroundf(power_w * 100.0f);
+    int16_t shunt_hundredths_mv = (int16_t)lroundf(shunt_mv * 100.0f);
+
+    with_i2c_register({
+        i2c_register_update(I2C_POWER_METER_VOLTAGE_REG_ADDRESS, voltage_mv, 0xFFFF);
+        i2c_register_update(I2C_POWER_METER_CURRENT_REG_ADDRESS, (uint16_t)current_ma, 0xFFFF);
+        i2c_register_update(I2C_POWER_METER_POWER_REG_ADDRESS, (uint16_t)power_cw, 0xFFFF);
+        i2c_register_update(I2C_POWER_METER_SHUNT_VOLTAGE_REG_ADDRESS, (uint16_t)shunt_hundredths_mv, 0xFFFF);
+    });
+}
+
 // Internal functions
 static void i2c_negotiator_queue_worker(FuriEventLoopObject* object, void* context) {
     furi_check(context);
@@ -255,6 +305,7 @@ I2CNegotiator* i2c_negotiator_alloc() {
     instance->intercom = furi_record_open(RECORD_I2C_INTERCOM);
     instance->led = furi_record_open(RECORD_LEDS);
     instance->haptic = furi_record_open(RECORD_HAPTIC);
+    instance->power = furi_record_open(RECORD_POWER);
     instance->event_loop = furi_event_loop_alloc();
 
     instance->negotiator_queue = furi_message_queue_alloc(I2C_NEGOTIATOR_QUEUE_SIZE, sizeof(I2CNegotiatorI2CMessage));
@@ -308,7 +359,16 @@ I2CNegotiator* i2c_negotiator_alloc() {
 
         // Haptic
         i2c_register_add_writable(I2C_HAPTIC_PLAY_EFFECT_REG_ADDRESS, 0, i2c_negotiator_haptic_play_effect_message, instance->negotiator_queue);
+
+        // Main power meter
+        i2c_register_add_readable(I2C_POWER_METER_VOLTAGE_REG_ADDRESS, 0);
+        i2c_register_add_readable(I2C_POWER_METER_CURRENT_REG_ADDRESS, 0);
+        i2c_register_add_readable(I2C_POWER_METER_POWER_REG_ADDRESS, 0);
+        i2c_register_add_readable(I2C_POWER_METER_SHUNT_VOLTAGE_REG_ADDRESS, 0);
     }
+
+    instance->power_meter_timer = furi_event_loop_timer_alloc(instance->event_loop, i2c_negotiator_power_meter_poll, FuriEventLoopTimerTypePeriodic, instance);
+    furi_event_loop_timer_start(instance->power_meter_timer, furi_ms_to_ticks(I2C_NEGOTIATOR_POWER_METER_POLL_PERIOD_MS));
 
     furi_event_loop_subscribe_message_queue(instance->event_loop, instance->negotiator_queue, FuriEventLoopEventIn, i2c_negotiator_queue_worker, instance);
 
