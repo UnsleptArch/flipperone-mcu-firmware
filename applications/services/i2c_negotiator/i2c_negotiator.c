@@ -7,6 +7,7 @@
 #include <led/led.h>
 #include <haptic/haptic.h>
 #include <drivers/drv2605l/drv2605l.h>
+#include <usb_mux/usb_mux.h>
 
 #define TAG "I2CNegotiator"
 
@@ -19,6 +20,7 @@ typedef struct {
     I2CIntercom* intercom;
     Led* led;
     Haptic* haptic;
+    UsbMux* usb_mux;
 } I2CNegotiator;
 
 typedef void (*I2CNegotiatorMessageFunction)(I2CNegotiator* instance, uint16_t value);
@@ -208,6 +210,12 @@ void i2c_negotiator_haptic_play_effect(I2CNegotiator* instance, uint16_t value) 
 }
 I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_haptic_play_effect);
 
+// USB-A port power function
+void i2c_negotiator_usb_a_power_enable(I2CNegotiator* instance, uint16_t value) {
+    usb_mux_usb_a_power_enable(instance->usb_mux, value & (1 << I2C_USB_A_POWER_ENABLE_REG_BIT_ENABLE));
+}
+I2C_NEGOTIATOR_REGISTER_MESSAGE_FROM_IRQ(i2c_negotiator_usb_a_power_enable);
+
 // Internal functions
 static void i2c_negotiator_queue_worker(FuriEventLoopObject* object, void* context) {
     furi_check(context);
@@ -255,6 +263,7 @@ I2CNegotiator* i2c_negotiator_alloc() {
     instance->intercom = furi_record_open(RECORD_I2C_INTERCOM);
     instance->led = furi_record_open(RECORD_LEDS);
     instance->haptic = furi_record_open(RECORD_HAPTIC);
+    instance->usb_mux = furi_record_open(RECORD_USBMUX);
     instance->event_loop = furi_event_loop_alloc();
 
     instance->negotiator_queue = furi_message_queue_alloc(I2C_NEGOTIATOR_QUEUE_SIZE, sizeof(I2CNegotiatorI2CMessage));
@@ -308,6 +317,9 @@ I2CNegotiator* i2c_negotiator_alloc() {
 
         // Haptic
         i2c_register_add_writable(I2C_HAPTIC_PLAY_EFFECT_REG_ADDRESS, 0, i2c_negotiator_haptic_play_effect_message, instance->negotiator_queue);
+
+        // USB-A port power
+        i2c_register_add_writable(I2C_USB_A_POWER_ENABLE_REG_ADDRESS, 0, i2c_negotiator_usb_a_power_enable_message, instance->negotiator_queue);
     }
 
     furi_event_loop_subscribe_message_queue(instance->event_loop, instance->negotiator_queue, FuriEventLoopEventIn, i2c_negotiator_queue_worker, instance);

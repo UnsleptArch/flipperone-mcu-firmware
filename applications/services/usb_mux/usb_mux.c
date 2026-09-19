@@ -3,6 +3,7 @@
 #include <drivers/hd3ss3220/hd3ss3220.h>
 #include <furi_hal_i2c_config.h>
 #include <furi_hal_resources.h>
+#include <furi_bsp_expander.h>
 #include <api_lock.h>
 
 #define TAG "UsbMux"
@@ -98,6 +99,17 @@ bool usb_mux_is_device_initialized(UsbMux* instance, UsbMuxDevice* device) {
         FURI_LOG_E(TAG, "UsbMux device not initialized");
     }
     return initialized;
+}
+
+void usb_mux_usb_a_power_enable(UsbMux* instance, bool enable) {
+    furi_check(instance);
+    uint16_t output = furi_bsp_expander_main_read_output();
+    if(enable) {
+        output |= OutputExpMainTypeAUpSwEn;
+    } else {
+        output &= ~OutputExpMainTypeAUpSwEn;
+    }
+    furi_bsp_expander_main_write_output(output);
 }
 
 int32_t usb_mux_srv(void* p) {

@@ -170,3 +170,16 @@
 #define I2C_HAPTIC_NUM_EFFECT_SHIFT        (8)
 #define I2C_HAPTIC_DURATION_MASK           (0x00FF)
 #define I2C_HAPTIC_DURATION_SHIFT          (0)
+
+// USB-A port power register
+/*
+ * Controls power to the board's Type-A (non-PD) USB port, via the main
+ * GPIO expander's TypeAUpSwEn switch-enable line. Nothing in the normal
+ * boot sequence turns this switch on, so the port has no power until this
+ * is written.
+ * 0x0520+0 USB-A port power enable    (read, write)
+ *          Bit 0: 1 = port power switch enabled, 0 = disabled (default)
+ *          Bit 1-15: Reserved
+*/
+#define I2C_USB_A_POWER_ENABLE_REG_ADDRESS    (0x0520 + 0)
+#define I2C_USB_A_POWER_ENABLE_REG_BIT_ENABLE (0)
